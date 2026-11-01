@@ -18,7 +18,6 @@ MAP_DICT = {'DOMAIN-SUFFIX': 'domain_suffix', 'HOST-SUFFIX': 'domain_suffix', 'h
 # 定义分类字段
 DOMAIN_FIELDS = {'domain', 'domain_suffix', 'domain_keyword', 'domain_regex'}
 IP_FIELDS = {'ip_cidr', 'source_ip_cidr', 'geoip'}
-# 注意：port 和 source_port 不在上述集合中，会自动被忽略
 
 def read_yaml_from_url(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -37,15 +36,10 @@ def read_list_from_url(url):
         return None
     filtered_rows = []
     rules = []
-    # 处理逻辑规则 (保持原样，默认不输出逻辑规则)
     if 'AND' in df['pattern'].values:
         and_rows = df[df['pattern'].str.contains('AND', na=False)]
         for _, row in and_rows.iterrows():
-            rule = {
-                "type": "logical",
-                "mode": "and",
-                "rules": []
-            }
+            rule = {"type": "logical", "mode": "and", "rules": []}
             pattern = ",".join(row.values.astype(str))
             components = re.findall(r'\((.*?)\)', pattern)
             for component in components:
@@ -54,9 +48,7 @@ def read_list_from_url(url):
                         match = re.search(f'{keyword},(.*)', component)
                         if match:
                             value = match.group(1)
-                            rule["rules"].append({
-                                MAP_DICT[keyword]: value
-                            })
+                            rule["rules"].append({MAP_DICT[keyword]: value})
             rules.append(rule)
     for index, row in df.iterrows():
         if 'AND' not in row['pattern']:
@@ -123,7 +115,6 @@ def sort_dict(obj):
         return obj
 
 def build_and_compile_srs(base_name, output_directory, rule_type, df_grouped):
-    """根据分类数据生成 JSON 并编译为 SRS，最后清理 JSON"""
     if not df_grouped:
         return None
 
@@ -144,18 +135,15 @@ def build_and_compile_srs(base_name, output_directory, rule_type, df_grouped):
     if domain_entries:
         result_rules["rules"].insert(0, {'domain': domain_entries})
 
-    # 临时 json
     file_name = os.path.join(output_directory, f"{base_name}_{rule_type}.json")
     with open(file_name, 'w', encoding='utf-8') as output_file:
         result_rules_str = json.dumps(sort_dict(result_rules), ensure_ascii=False, indent=2)
         result_rules_str = result_rules_str.replace('\\\\', '\\')
         output_file.write(result_rules_str)
 
-    # 编译 srs
     srs_path = file_name.replace(".json", ".srs")
     os.system(f"sing-box rule-set compile --output {srs_path} {file_name}")
     
-    # 删除临时 json
     if os.path.exists(file_name):
         os.remove(file_name)
         
@@ -166,7 +154,6 @@ def parse_list_file(link, output_directory):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             results= list(executor.map(parse_and_convert_to_dataframe, [link]))
             dfs = [df for df, rules in results]
-            rules_list = [rules for df, rules in results]
             df = pd.concat(dfs, ignore_index=True)
             
         df = df[~df['pattern'].str.contains('#')].reset_index(drop=True)
@@ -175,10 +162,8 @@ def parse_list_file(link, output_directory):
         df['pattern'] = df['pattern'].replace(MAP_DICT)
         os.makedirs(output_directory, exist_ok=True)
 
-        # 获取基础文件名，保留大小写（如 Apple.yaml -> Apple）
         base_name = os.path.basename(link).split('.')[0]
 
-        # 提取域名数据和 IP 数据（自动过滤掉 port 等不需要的数据）
         domain_df = df[df['pattern'].isin(DOMAIN_FIELDS)]
         ip_df = df[df['pattern'].isin(IP_FIELDS)]
 
@@ -187,12 +172,10 @@ def parse_list_file(link, output_directory):
 
         generated_files = []
 
-        # 域名 srs
         domain_srs = build_and_compile_srs(base_name, output_directory, "domain", domain_grouped)
         if domain_srs:
             generated_files.append(domain_srs)
 
-        # IP srs
         ip_srs = build_and_compile_srs(base_name, output_directory, "ip", ip_grouped)
         if ip_srs:
             generated_files.append(ip_srs)
