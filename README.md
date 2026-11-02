@@ -28,5 +28,4 @@
 
 [@DivineEngine](https://github.com/DivineEngine)
 
-.[.@Toperlock]
-.(https://github.com/Toperlock).
+[@Toperlock](https://github.com/Toperlock)
